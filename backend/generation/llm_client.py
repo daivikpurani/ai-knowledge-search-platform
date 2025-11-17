@@ -3,8 +3,9 @@ Unified LLM client supporting both Ollama and OpenAI.
 Provides consistent interface for different LLM providers.
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, AsyncIterator
 import asyncio
+import json
 from ..core.logger import app_logger
 from ..core.config import settings
 
@@ -246,3 +247,96 @@ Please provide a helpful and accurate response based on the context above. If th
             
         except Exception as e:
             return {"success": False, "error": str(e)}
+    
+    async def stream_response(self, prompt: str, 
+                             context: str = "",
+                             max_tokens: int = 1000,
+                             temperature: float = 0.7) -> AsyncIterator[str]:
+        """
+        Stream response chunks using the configured LLM provider.
+        
+        Args:
+            prompt: Input prompt
+            context: Additional context for the prompt
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            
+        Yields:
+            Response chunks as strings
+        """
+        try:
+            if self.provider == "openai":
+                async for chunk in self._stream_openai(prompt, context, max_tokens, temperature):
+                    yield chunk
+            elif self.provider == "ollama":
+                async for chunk in self._stream_ollama(prompt, context, max_tokens, temperature):
+                    yield chunk
+            else:
+                raise ValueError(f"Unsupported provider: {self.provider}")
+                
+        except Exception as e:
+            self.logger.error(f"Error streaming response: {str(e)}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
+    async def _stream_openai(self, prompt: str, context: str, 
+                            max_tokens: int, temperature: float) -> AsyncIterator[str]:
+        """Stream response using OpenAI."""
+        try:
+            # Construct full prompt with context
+            full_prompt = self._construct_prompt(prompt, context)
+            
+            # Make streaming API call
+            stream = self.openai_client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful AI assistant that provides accurate and helpful responses based on the given context."},
+                    {"role": "user", "content": full_prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True
+            )
+            
+            # Yield chunks as they arrive
+            for chunk in stream:
+                if chunk.choices[0].delta.content is not None:
+                    content = chunk.choices[0].delta.content
+                    yield f"data: {json.dumps({'content': content, 'provider': 'openai'})}\n\n"
+            
+            # Send completion signal
+            yield f"data: {json.dumps({'done': True, 'provider': 'openai'})}\n\n"
+            
+        except Exception as e:
+            self.logger.error(f"OpenAI streaming error: {str(e)}")
+            yield f"data: {json.dumps({'error': str(e), 'provider': 'openai'})}\n\n"
+    
+    async def _stream_ollama(self, prompt: str, context: str, 
+                            max_tokens: int, temperature: float) -> AsyncIterator[str]:
+        """Stream response using Ollama."""
+        try:
+            # Construct full prompt with context
+            full_prompt = self._construct_prompt(prompt, context)
+            
+            # Make streaming API call
+            stream = self.ollama_client.generate(
+                model=self.model,
+                prompt=full_prompt,
+                options={
+                    "num_predict": max_tokens,
+                    "temperature": temperature
+                },
+                stream=True
+            )
+            
+            # Yield chunks as they arrive
+            for chunk in stream:
+                if "response" in chunk:
+                    content = chunk["response"]
+                    yield f"data: {json.dumps({'content': content, 'provider': 'ollama'})}\n\n"
+            
+            # Send completion signal
+            yield f"data: {json.dumps({'done': True, 'provider': 'ollama'})}\n\n"
+            
+        except Exception as e:
+            self.logger.error(f"Ollama streaming error: {str(e)}")
+            yield f"data: {json.dumps({'error': str(e), 'provider': 'ollama'})}\n\n"

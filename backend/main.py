@@ -78,10 +78,27 @@ async def get_info():
 
 if __name__ == "__main__":
     import uvicorn
+    import sys
+    
+    # Get worker count from environment or settings
+    workers = settings.workers if "--workers" not in sys.argv else None
+    
+    # Check if running in production mode (no reload)
+    reload = "--reload" in sys.argv or "--dev" in sys.argv
+    
+    # Parse workers from command line if provided
+    if "--workers" in sys.argv:
+        try:
+            workers_idx = sys.argv.index("--workers")
+            workers = int(sys.argv[workers_idx + 1])
+        except (IndexError, ValueError):
+            workers = settings.workers
+    
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
+        reload=reload,
+        workers=workers if not reload else 1,  # Workers not compatible with reload
         log_level="info"
     )

@@ -4,6 +4,7 @@ Handles document upload, processing, and search queries.
 """
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
+from fastapi.responses import StreamingResponse
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import os
@@ -133,6 +134,50 @@ async def rag_query(request: QueryRequest):
     except Exception as e:
         app_logger.error(f"RAG query error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"RAG processing failed: {str(e)}")
+
+@router.post("/query/stream")
+async def stream_query(request: QueryRequest):
+    """
+    Process query through RAG pipeline with streaming response.
+    
+    Args:
+        request: Query request with search text and parameters
+        
+    Returns:
+        Streaming response with chunks of the answer
+    """
+    try:
+        # Validate query
+        if not validate_query(request.query):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid query. Query must be 3-1000 characters long."
+            )
+        
+        # Create streaming response generator
+        async def generate_stream():
+            async for chunk in rag_pipeline.process_query_stream(
+                query=request.query,
+                max_results=request.max_results,
+                enable_optimization=True
+            ):
+                yield chunk
+        
+        return StreamingResponse(
+            generate_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        app_logger.error(f"Streaming query error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Streaming processing failed: {str(e)}")
 
 @router.post("/ingest/file", response_model=IngestResponse)
 async def ingest_file(file: UploadFile = File(...)):
@@ -290,15 +335,22 @@ async def ingest_directory(directory_path: str = Form(...)):
 async def get_stats():
     """Get comprehensive pipeline statistics."""
     try:
+        from ..core.cache import CacheManager
+        cache_manager = CacheManager()
+        
         pipeline_stats = rag_pipeline.get_pipeline_stats()
+        cache_stats = cache_manager.get_cache_stats()
+        
         return {
             "pipeline_stats": pipeline_stats,
+            "cache_stats": cache_stats,
             "app_config": {
                 "chunk_size": settings.chunk_size,
                 "chunk_overlap": settings.chunk_overlap,
                 "max_chunks_per_query": settings.max_chunks_per_query,
                 "embedding_model": settings.embedding_model,
-                "llm_provider": settings.llm_provider
+                "llm_provider": settings.llm_provider,
+                "workers": settings.workers
             }
         }
     except Exception as e:

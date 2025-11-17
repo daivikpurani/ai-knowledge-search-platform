@@ -54,6 +54,17 @@ class Settings(BaseSettings):
     similarity_threshold: float = Field(default=0.9, env="SIMILARITY_THRESHOLD")
     max_context_tokens: int = Field(default=4000, env="MAX_CONTEXT_TOKENS")
     
+    # Redis Cache Configuration
+    redis_host: str = Field(default="localhost", env="REDIS_HOST")
+    redis_port: int = Field(default=6379, env="REDIS_PORT")
+    redis_db: int = Field(default=0, env="REDIS_DB")
+    redis_password: str = Field(default="", env="REDIS_PASSWORD")
+    cache_enabled: bool = Field(default=True, env="CACHE_ENABLED")
+    cache_ttl: int = Field(default=3600, env="CACHE_TTL")  # 1 hour
+    
+    # Load Balancing
+    workers: int = Field(default=4, env="WORKERS")
+    
     class Config:
         env_file = "config.env"
         case_sensitive = False

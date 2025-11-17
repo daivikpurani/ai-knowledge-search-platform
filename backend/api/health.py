@@ -4,7 +4,9 @@ Health check endpoints for monitoring application status.
 
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
+import os
 from ..core.logger import app_logger
+from ..core.config import settings
 from ..embedding.index_manager import IndexManager
 
 router = APIRouter(tags=["health"])
@@ -114,3 +116,23 @@ async def readiness_check() -> Dict[str, Any]:
     except Exception as e:
         app_logger.error(f"Readiness check failed: {str(e)}")
         raise HTTPException(status_code=503, detail="Service not ready")
+
+@router.get("/health/workers")
+async def worker_health_check() -> Dict[str, Any]:
+    """Worker health check for load balancing."""
+    try:
+        worker_id = os.getpid()
+        worker_count = settings.workers
+        
+        return {
+            "status": "healthy",
+            "worker_id": worker_id,
+            "configured_workers": worker_count,
+            "message": f"Worker {worker_id} is running"
+        }
+    except Exception as e:
+        app_logger.error(f"Worker health check failed: {str(e)}")
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }

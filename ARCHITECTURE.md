@@ -312,6 +312,8 @@ async def _optimize_context(self, results):
 - Retrieval strategy distribution
 - Optimization effectiveness
 - Error rates and types
+- Cache hit/miss rates
+- Worker performance metrics
 
 ### Logging Strategy
 
@@ -326,5 +328,67 @@ async def _optimize_context(self, results):
 - Resource usage tracking
 - External service connectivity
 - Data integrity verification
+- Worker health endpoints
+- Cache connectivity status
 
-This architecture demonstrates production-ready thinking while maintaining simplicity for interview demonstration. The modular design allows for easy extension and modification, while the comprehensive error handling and monitoring ensure reliability in real-world scenarios.
+## Caching Architecture
+
+### Redis Integration
+
+The platform uses Redis for caching query results and intent classifications:
+
+- **Query Result Caching**: Caches complete RAG responses with configurable TTL
+- **Intent Classification Caching**: Caches intent classification results to avoid redundant processing
+- **Cache Key Format**: `{prefix}:{hash}` where hash is MD5 of query parameters
+- **Graceful Degradation**: System continues to function if Redis is unavailable
+- **Cache Statistics**: Tracks hit/miss rates and performance metrics
+
+### Cache Manager
+
+The `CacheManager` class provides:
+- Connection pooling for Redis
+- Automatic TTL management
+- Cache invalidation strategies
+- Statistics and monitoring
+- Error handling and fallback
+
+## Streaming Architecture
+
+### Streaming Support
+
+The platform supports streaming responses for both OpenAI and Ollama:
+
+- **OpenAI Streaming**: Uses native streaming API with Server-Sent Events (SSE)
+- **Ollama Streaming**: Uses Ollama's streaming API with chunk-based responses
+- **Unified Interface**: Consistent streaming interface regardless of provider
+- **Metadata Streaming**: Streams routing, retrieval, and optimization metadata
+- **Error Handling**: Graceful error handling in streaming mode
+
+### Streaming Endpoint
+
+The `/api/v1/query/stream` endpoint:
+- Returns Server-Sent Events (SSE) format
+- Streams pipeline metadata (routing, retrieval, optimization)
+- Streams LLM response chunks in real-time
+- Includes completion signals and error handling
+
+## Load Balancing
+
+### Application-Level Load Balancing
+
+The platform supports multiple worker processes:
+
+- **Worker Configuration**: Configurable via `WORKERS` environment variable
+- **Uvicorn Workers**: Uses uvicorn's worker processes for concurrent request handling
+- **Worker Health Checks**: `/api/v1/health/workers` endpoint for monitoring
+- **Process Isolation**: Each worker runs in a separate process
+- **Production Deployment**: Recommended 4+ workers for production workloads
+
+### Deployment Considerations
+
+- Workers are not compatible with `--reload` mode (development only)
+- Each worker maintains its own connection pools (Redis, ChromaDB)
+- Shared state (ChromaDB) is accessed concurrently but safely
+- Cache (Redis) provides shared state across workers
+
+This architecture demonstrates production-ready thinking while maintaining simplicity for interview demonstration. The modular design allows for easy extension and modification, while the comprehensive error handling, caching, streaming, and load balancing ensure reliability and scalability in real-world scenarios.

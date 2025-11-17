@@ -8,6 +8,9 @@ A local AI-powered enterprise knowledge search system that ingests mixed-format 
 - **Hybrid Retrieval** - Combines BM25 keyword search with semantic vector search
 - **Context Optimization** - Deduplication and compression to reduce token usage by 30-45%
 - **Multi-LLM Support** - Toggle between Ollama (local) and OpenAI API
+- **Streaming Responses** - Real-time streaming for both OpenAI and Ollama providers
+- **Redis Caching** - Query result caching with configurable TTL for improved performance
+- **Load Balancing** - Application-level load balancing with multiple workers
 - **Interactive UI** - Streamlit dashboard with routing visualization and context inspection
 - **Production-Ready** - FastAPI backend with comprehensive error handling and logging
 
@@ -108,6 +111,27 @@ MAX_CONTEXT_TOKENS=4000
 SIMILARITY_THRESHOLD=0.9
 ```
 
+### Redis Caching
+```env
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=
+CACHE_ENABLED=true
+CACHE_TTL=3600  # 1 hour
+```
+
+### Load Balancing
+```env
+WORKERS=4  # Number of worker processes
+```
+
+**Note**: For production deployment with load balancing, run:
+```bash
+cd backend
+python main.py --workers 4
+```
+
 ## 📈 Performance Metrics
 
 - **Query Latency**: < 2.0 seconds average
@@ -120,6 +144,7 @@ SIMILARITY_THRESHOLD=0.9
 ### Query Processing
 - `POST /api/v1/query` - Process query through RAG pipeline
 - `POST /api/v1/query/rag` - Full RAG response with metadata
+- `POST /api/v1/query/stream` - Streaming RAG response (Server-Sent Events)
 
 ### Document Management
 - `POST /api/v1/ingest/file` - Upload single document
@@ -127,20 +152,40 @@ SIMILARITY_THRESHOLD=0.9
 - `DELETE /api/v1/clear` - Clear document index
 
 ### System Information
-- `GET /api/v1/stats` - Pipeline statistics
+- `GET /api/v1/stats` - Pipeline statistics (includes cache stats)
 - `GET /api/v1/test` - Pipeline health check
 - `GET /api/v1/health` - System health status
+- `GET /api/v1/health/workers` - Worker health check for load balancing
 
 ## 🧪 Testing
 
-Run comprehensive tests to verify all routing paths:
+Run comprehensive tests to verify all features:
 
 ```bash
+# Run all tests
+pytest tests/ -v
+
+# Test intent classification accuracy (85%+)
+pytest tests/test_intent_accuracy.py -v
+
+# Test token reduction (40%+ average)
+pytest tests/test_token_reduction.py -v
+
+# Test caching functionality
+pytest tests/test_caching.py -v
+
+# Test streaming endpoints
+pytest tests/test_streaming.py -v
+
+# Run original routing tests
 python scripts/test_routing.py
 ```
 
-This tests:
-- Intent classification accuracy
+Tests verify:
+- Intent classification accuracy (85%+)
+- Token reduction metrics (40%+ average)
+- Cache hit/miss behavior
+- Streaming response completeness
 - Routing decision correctness  
 - RAG pipeline end-to-end flow
 - Performance benchmarks

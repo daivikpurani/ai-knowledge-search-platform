@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 from enum import Enum
 from ..core.logger import app_logger
 from ..core.config import settings
+from ..core.cache import CacheManager
 from .intent_classifier import QueryIntent, IntentClassifier
 
 class RetrievalStrategy(Enum):
@@ -63,6 +64,7 @@ class QueryRouter:
         self.logger = app_logger
         self.intent_classifier = IntentClassifier()
         self.strategy_config = StrategyConfig()
+        self.cache_manager = CacheManager()
         
         # Intent to strategy mapping
         self.intent_strategy_map = {
@@ -84,8 +86,20 @@ class QueryRouter:
             Routing decision with strategy and parameters
         """
         try:
-            # Classify intent
-            intent, confidence, explanation = self.intent_classifier.classify_intent(query)
+            # Check cache for intent classification
+            cached_intent = self.cache_manager.get_cached_intent_classification(query)
+            if cached_intent:
+                intent = QueryIntent(cached_intent["intent"])
+                confidence = cached_intent["confidence"]
+                explanation = cached_intent["explanation"]
+                self.logger.debug(f"Using cached intent classification for: '{query}'")
+            else:
+                # Classify intent
+                intent, confidence, explanation = self.intent_classifier.classify_intent(query)
+                # Cache the classification
+                self.cache_manager.cache_intent_classification(
+                    query, intent.value, confidence, explanation
+                )
             
             # Select strategy
             if custom_strategy:

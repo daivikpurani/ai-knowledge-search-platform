@@ -4,7 +4,7 @@ Combines query routing, retrieval, optimization, and generation.
 """
 
 import time
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, AsyncIterator
 from ..core.logger import app_logger
 from ..core.config import settings
 from ..routing.router import QueryRouter, RetrievalStrategy
@@ -17,6 +17,7 @@ from ..optimization.stats import OptimizationStats
 from ..generation.llm_client import LLMClient
 from ..generation.prompt_templates import PromptTemplates
 from ..embedding.index_manager import IndexManager
+from ..core.cache import CacheManager
 
 class RAGPipeline:
     """End-to-end RAG pipeline with intelligent routing and optimization."""
@@ -39,6 +40,9 @@ class RAGPipeline:
         self.deduplicator = ContextDeduplicator()
         self.compressor = ContextCompressor()
         self.optimization_stats = OptimizationStats()
+        
+        # Initialize cache
+        self.cache_manager = CacheManager()
         
         # Pipeline state
         self.is_initialized = False
@@ -77,6 +81,16 @@ class RAGPipeline:
         start_time = time.time()
         
         try:
+            # Check cache first
+            strategy_name = custom_strategy or "auto"
+            cached_result = self.cache_manager.get_cached_query_result(
+                query, strategy_name, max_results or 10
+            )
+            if cached_result:
+                self.logger.info(f"Cache hit for query: '{query}'")
+                cached_result["metadata"]["cached"] = True
+                return cached_result
+            
             # Step 1: Route query to optimal strategy
             routing_decision = self.query_router.route_query(query, custom_strategy)
             
@@ -127,6 +141,13 @@ class RAGPipeline:
                     retrieval_results, optimized_results
                 )
             
+            # Cache the result
+            strategy_name = custom_strategy or routing_decision["strategy"]["type"]
+            self.cache_manager.cache_query_result(
+                query, strategy_name, max_results or 10, final_response
+            )
+            
+            final_response["metadata"]["cached"] = False
             self.logger.info(f"RAG pipeline completed: '{query}' in {processing_time:.2f}s")
             return final_response
             
@@ -338,3 +359,68 @@ class RAGPipeline:
                 "error": str(e),
                 "overall_status": "unhealthy"
             }
+    
+    async def process_query_stream(self, query: str, 
+                                  custom_strategy: Optional[str] = None,
+                                  max_results: int = None,
+                                  enable_optimization: bool = True) -> AsyncIterator[str]:
+        """
+        Process a query through the RAG pipeline with streaming response.
+        
+        Args:
+            query: User query
+            custom_strategy: Override automatic strategy selection
+            max_results: Maximum number of results to return
+            enable_optimization: Whether to apply context optimization
+            
+        Yields:
+            Streaming response chunks
+        """
+        import json
+        
+        try:
+            # Step 1: Route query to optimal strategy
+            routing_decision = self.query_router.route_query(query, custom_strategy)
+            
+            # Send routing metadata
+            yield f"data: {json.dumps({'type': 'routing', 'data': routing_decision})}\n\n"
+            
+            # Step 2: Retrieve relevant documents
+            retrieval_results = await self._retrieve_documents(
+                query, routing_decision, max_results
+            )
+            
+            # Send retrieval metadata
+            yield f"data: {json.dumps({'type': 'retrieval', 'count': len(retrieval_results)})}\n\n"
+            
+            # Step 3: Optimize context (deduplication + compression)
+            if enable_optimization and retrieval_results:
+                optimized_results = await self._optimize_context(retrieval_results)
+            else:
+                optimized_results = retrieval_results
+            
+            # Send optimization metadata
+            yield f"data: {json.dumps({'type': 'optimization', 'original': len(retrieval_results), 'optimized': len(optimized_results)})}\n\n"
+            
+            # Step 4: Prepare context and prompt
+            context = self._prepare_context(optimized_results)
+            intent = routing_decision["intent"]["type"]
+            prompt = self.prompt_templates.get_prompt(intent, query, context)
+            
+            # Step 5: Stream LLM response
+            yield f"data: {json.dumps({'type': 'start'})}\n\n"
+            
+            async for chunk in self.llm_client.stream_response(
+                prompt=prompt,
+                context="",  # Context is already in prompt
+                max_tokens=1000,
+                temperature=0.7
+            ):
+                yield chunk
+            
+            # Send completion metadata
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            
+        except Exception as e:
+            self.logger.error(f"RAG pipeline streaming error: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
